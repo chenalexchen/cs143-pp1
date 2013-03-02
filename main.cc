@@ -24,7 +24,7 @@ static void PrintOneToken(TokenType token, const char *text, YYSTYPE value,
   const char *name = token >= T_Void ? gTokenNames[token - T_Void] : buffer;
   
   printf("%-12s line %d cols %d-%d is %s ", text,
-	   loc.first_line, loc.first_column, loc.last_column, name);
+	   loc.first_line, loc.first_column, loc.last_column - 1, name);
   
   switch(token) {
     case T_IntConstant:     

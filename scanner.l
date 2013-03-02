@@ -46,6 +46,9 @@ struct yyltype yylloc; // manually dclared for pp1, later Yacc provides
 static void DoBeforeEachAction(); 
 #define YY_USER_ACTION DoBeforeEachAction();
 
+ int line_no;
+
+
 %}
 
  /* The section before the first %% is the Definitions section of the lex
@@ -55,11 +58,153 @@ static void DoBeforeEachAction();
   * entries in the Rules section later. 
   */
 
+DIGIT             [0-9]
+DIGITHEX          [A-Fa-f0-9]
+IDENTIFIER        [A-Za-z][A-Za-z0-9_]*
+
+
+%s comment
+%s comment_single_line
 
 %%             /* BEGIN RULES SECTION */
  /* All patterns and actions should be placed between the start and stop
   * %% markers which delimit the Rules section. 
   */ 
+<INITIAL>{
+void             {return T_Void;}
+int              {return T_Int;}
+double           {return T_Double;}
+bool             {return T_Bool;}
+string           {return T_String;}
+class            {return T_Class;}
+interface        {return T_Interface;}
+null             {return T_Null;}
+this             {return T_This;}
+extends          {return T_Extends;}
+implements       {return T_Implements;}
+for              {return T_For;}
+while            {return T_While;}
+if               {return T_If;}
+else             {return T_Else;}
+return           {return T_Return;}
+break            {return T_Break;}
+new              {return T_New;}
+NewArray         {return T_NewArray;}
+Print            {return T_Print;}
+ReadInteger      {return T_ReadInteger;}
+ReadLine         {return T_ReadLine;}
+"<="             {return T_LessEqual;}
+">="             {return T_GreaterEqual;}
+"!="             {return T_NotEqual;}
+"=="             {return T_Equal;}
+"&&"             {return T_And;}
+"||"             {return T_Or;}
+"[]"             {return T_Dims;}
+
+[^\+\-\*/%\<\>=!;,\.\(\)\[\]\|\{\}\"A-Za-z0-9\n\t \r]     {
+        ReportError::UnrecogChar(&yylloc, yytext[0]);
+}
+
+("+"|"-"|"*"|"/"|"%"|"<"|">"|"="|"!"|";"|","|"."|"("|")"|"["|"]"|"{"|"}")      {return yytext[0];}
+
+[\n\r\t ]          {
+        if(yytext[0] == '\n'){
+                line_no ++;
+                yylloc.last_column = 1;
+        }
+}
+
+((true)|(false))     {
+        if(!strcmp(yytext, "true")){
+                yylval.boolConstant = true;
+        }else{
+                yylval.boolConstant = false;
+        }
+        return T_BoolConstant;        
+}
+
+
+{DIGIT}+         {
+        yylval.integerConstant = atoi(yytext);
+        return T_IntConstant;
+}
+
+(0[xX]{DIGITHEX}+)  {
+        char *end;
+        yylval.integerConstant = strtol(yytext, &end,16);
+        return T_IntConstant;
+}
+
+({DIGIT}+\.{DIGIT}*)([e|E][+|-]?{DIGIT}+)?  {
+        yylval.doubleConstant = atof(yytext);
+        return T_DoubleConstant;
+}
+
+{IDENTIFIER}       {
+        if(yyleng > MaxIdentLen){
+                strncpy(yylval.identifier, yytext, MaxIdentLen);
+                yylval.identifier[MaxIdentLen] = 0;
+                /* ERR: identifier too long error */               
+                ReportError::LongIdentifier(&yylloc, 
+                                            yytext);
+        }else{
+                strncpy(yylval.identifier, yytext, yyleng);
+                yylval.identifier[yyleng] = 0;
+        }
+        return T_Identifier;
+}
+
+\"[^\n\"]*\"        {
+        yylval.stringConstant = strdup(yytext);
+        yylval.stringConstant[yyleng] = 0;
+        return T_StringConstant;
+}
+
+\"[^\n\"]*\n        {
+        char *report_str = strdup(yytext);
+        report_str[yyleng-1] = 0;   /*delete the last \n */
+        ReportError::UntermString(&yylloc, report_str);
+        free(report_str);
+        line_no++;
+        yylloc.last_column = 1;
+}
+
+"/*"                {
+        BEGIN(comment);
+}
+
+}
+
+<comment>[^*\n]*    {}
+<comment>"*"+[^\*/\n]*     {}
+<comment>"\n"       {
+        line_no ++; 
+        yylloc.last_column = 1;
+}
+<comment>"*"+"/"    {BEGIN(INITIAL);}
+
+<comment><<EOF>>    {/* ERR: Unterminated comments */
+        ReportError::UntermComment();
+        yyterminate();
+}
+
+"//"                {BEGIN(comment_single_line);}
+
+<comment_single_line>[^\n]+  {}
+<comment_single_line>"\n"   {
+        BEGIN(INITIAL);
+        line_no ++;
+        yylloc.last_column = 1;
+}
+<comment_single_line><<EOF>>    {/* ERR: Unterminated comments */
+        ReportError::UntermComment();
+        yyterminate();
+}
+
+
+<INITIAL><<EOF>>    {
+        yyterminate();
+}
 
 %%
 /* The closing %% above marks the end of the Rules section and the beginning
@@ -85,6 +230,12 @@ void InitScanner()
 {
     PrintDebug("lex", "Initializing scanner");
     yy_flex_debug = false;
+    line_no = 1;  /* initialize the line no. to be 1 */
+    yylloc.first_line = 1;
+    yylloc.first_column = 1;
+    yylloc.last_line = 1;
+    yylloc.last_column = 1;
+    BEGIN(INITIAL);
 }
 
 
@@ -95,4 +246,8 @@ void InitScanner()
  */
 static void DoBeforeEachAction()
 {
+        yylloc.first_line = line_no;
+        yylloc.last_line = line_no;
+        yylloc.first_column = yylloc.last_column;
+        yylloc.last_column = yylloc.first_column + yyleng;        
 }
